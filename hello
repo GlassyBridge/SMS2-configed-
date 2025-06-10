@@ -1,0 +1,209 @@
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
+from config import Config 
+import re
+import json
+import os
+
+class ConfigWindow:
+    def __init__(self):
+        self.config = Config()
+        self.window = ctk.CTkToplevel()
+        self.window.title("Google Sheets Configuration")
+        self.window.geometry("650x550")
+        self.window.grab_set()  # Make window modal
+
+        # Set color themes
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        #Save button
+        save_btn = ctk.CTkButton(self.window, text = "Save", 
+                               command = self.save_configuration,
+                               width = 80,
+                               height = 30,
+                               fg_color = "#28a745",
+                               hover_color = "#218838")
+        save_btn.pack(padx = 5, pady = 5, anchor = "w")
+
+        # Main container
+        container = ctk.CTkFrame(self.window)
+        container.pack(fill = "both", expand = True)
+
+        # Title
+        title = ctk.CTkLabel(container, text = "Google Sheets Configuration", 
+                           font = ("Helvetica", 18, "bold"))
+        title.pack()
+
+        # Inventory Sheet ID
+        inv_frame = ctk.CTkFrame(container)
+        inv_frame.pack(fill = "x", expand = True, pady = (0, 5))
+
+        inv_label = ctk.CTkLabel(inv_frame, text = "Inventory Sheet ID:  ", 
+                               font = ("Helvetica", 12), anchor = "w")
+        inv_label.pack(side = "left")
+
+        self.inv_entry = ctk.CTkEntry(inv_frame)
+        self.inv_entry.pack(side = "left", fill = "x", expand = True)
+        self.inv_entry.insert(0, self.config.get_inventory_sheet_id())
+
+        # Extract Inventory Button
+        extract_inv_button = ctk.CTkButton(inv_frame, text = "Extract", 
+                                           command = lambda: self.extract_id(self.inv_entry, 
+                                           self.config.set_inventory_sheet_id), width = 8)
+        extract_inv_button.pack(side = "right")
+
+        # Credentials Sheet ID
+        cred_frame = ctk.CTkFrame(container)
+        cred_frame.pack(fill = "x")
+
+        cred_label = ctk.CTkLabel(cred_frame, text = "Credentials Sheet ID:  ", 
+                                font = ("Helvetica", 12))
+        cred_label.pack(side = "left")
+
+        self.cred_entry = ctk.CTkEntry(cred_frame)
+        self.cred_entry.pack(side = "left", fill = "x", expand = True)
+        self.cred_entry.insert(0, self.config.get_credentials_sheet_id())
+
+        # Extract Credentials Button
+        extract_cred_button = ctk.CTkButton(cred_frame, text = "Extract", 
+                                          command = lambda: self.extract_id(self.cred_entry,
+                                            self.config.set_credentials_sheet_id), width = 8)
+        extract_cred_button.pack(side = "right")
+
+        # json frame
+        json_frame = ctk.CTkFrame(container, fg_color = "transparent")
+        json_frame.pack(fill = "x")
+
+        # Service Account JSON
+        json_label = ctk.CTkLabel(json_frame, text = "Service Account JSON:  ", 
+                                font = ("Helvetica", 12))
+        json_label.pack(side = "left")
+        
+        # Browse button
+        browse_button = ctk.CTkButton(json_frame, text = "Browse", 
+                                    command = self.browse_json_file, width = 8, height=2, corner_radius=10)
+        browse_button.pack(side = "left")
+
+        # Json Text box
+        self.json_text = ctk.CTkTextbox(container, height = 30)
+        self.json_text.pack(fill = "x")
+
+        # Load current credentials from file directly
+        try:
+            if os.path.exists('credentials.json'):
+                with open('credentials.json', 'r') as f:
+                    json_obj = json.load(f)
+                    self.json_text.insert("1.0", json.dumps(json_obj, indent = 2))
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to load credentials: {e}")
+
+        # Help text
+        help_text = """
+1. Create a service account in Google Cloud Console
+2. Generate a JSON key for the service account
+3. Copy the service account email and share your Google Sheets with it
+4. Paste the complete JSON key above
+        """
+        help_label = ctk.CTkLabel(container, text = help_text, 
+                                font = ("Helvetica", 11),
+                                justify = "left",
+                                text_color = "#6c757d")
+        help_label.pack(anchor = "w")
+
+
+
+    def extract_id(self, entry, setter_method):
+        """ Extract the Sheet ID from the entered URL """
+        url = entry.get()
+        match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
+        if match:
+            sheet_id = match.group(1)
+            setter_method(sheet_id)
+            messagebox.showinfo("Success", "Sheet ID extracted successfully!")
+            entry.delete(0, "end")
+            entry.insert(0, sheet_id)
+        else:
+            messagebox.showerror("Error", "Invalid Google Sheet URL.")
+
+    def browse_json_file(self):
+        """ Open a file dialog to browse for the API JSON credentials file """
+        file_path = filedialog.askopenfilename(title = "Select API Credentials JSON File", 
+                                             filetypes = [("JSON files", "*.json")])
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    self.json_text.delete("1.0", "end")
+                    self.json_text.insert("1.0", content)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not load file: {str(e)}")
+
+    def save_configuration(self):
+        # Save Sheet IDs
+        inv_id = self.inv_entry.get().strip()
+        cred_id = self.cred_entry.get().strip()
+
+        if inv_id:
+            self.config.set_inventory_sheet_id(inv_id)
+
+        if cred_id:
+            self.config.set_credentials_sheet_id(cred_id)
+
+        # Save API credentials to file 
+        api_json = self.json_text.get("1.0", "end-1c").strip()
+        if api_json:
+            try:
+                # Validate JSON and required fields
+                json_obj = json.loads(api_json)
+
+                # Check for required fields
+                required_fields = ['client_email', 'private_key', 'type']
+                missing_fields = [field for field in required_fields if field not in json_obj]
+
+                if missing_fields:
+                    messagebox.showerror("Error", f"JSON is missing required fields: {', '.join(missing_fields)}")
+                    return
+
+                # Verify service account type
+                if json_obj.get('type') !=  'service_account':
+                    messagebox.showerror("Error", "JSON must be a service account key type")
+                    return
+
+                # Save to file as backup
+                with open('credentials.json', 'w') as f:
+                    f.write(api_json)
+
+                email_info = f"Share your sheets with: {json_obj['client_email']}"
+                messagebox.showinfo("Success", f"Configuration saved!\n{email_info}")
+
+                self.window.destroy()
+
+                # Restart is recommended to apply new credentials
+                restart = messagebox.askyesno("Restart Recommended", 
+                                            "It's recommended to restart the application to apply the new credentials. Restart now?")
+                if restart:
+                    self.window.after(500, self.restart_app)
+
+            except json.JSONDecodeError:
+                messagebox.showerror("Error", "Invalid JSON format!")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error: {str(e)}")
+        else:
+            messagebox.showerror("Error", "Service account JSON is required!")
+
+    def restart_app(self):
+        # Close the current window
+        self.window.destroy()
+
+        # Import needed to restart the application
+        import sys
+        import os
+
+        # Restart the application
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+        
